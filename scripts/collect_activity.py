@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Collect one ISO week of repository activity as JSON.
+"""Collect a slice of activity from a target repository, as JSON.
 
-Deterministic half of the `weekly-digest` workflow: given a week, print exactly
-what happened in it. No judgment, no prose, no network calls beyond `gh`.
+Deterministic half of the `repo-digest` workflow: given a repository and a
+starting point, print exactly what has happened since. No judgment, no prose,
+no network calls beyond `gh`. Read-only — it never writes to the target.
 
-    python3 scripts/collect_activity.py --week last
-    python3 scripts/collect_activity.py --week 2026-W36
+    python3 scripts/collect_activity.py --repo ~/code/my-project
+    python3 scripts/collect_activity.py --repo ~/code/my-project --since 2026-08-01
+    python3 scripts/collect_activity.py --repo ~/code/my-project --since v1.4.0
+    python3 scripts/collect_activity.py --repo ~/code/my-project --since a1b2c3d
 
-Stdlib only. Requires `git`; `gh` is optional (issues are omitted without it).
+`--repo` is the project being digested, somewhere else on your machine — not
+this workflow repo. Stdlib only. Requires `git`; `gh` is optional (issues are
+omitted without it).
 """
 
 from __future__ import annotations
@@ -15,45 +20,65 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 import subprocess
 import sys
+from pathlib import Path
+
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+DEFAULT_LOOKBACK_DAYS = 7
+TOOL_ROOT = Path(__file__).resolve().parent.parent
 
 
-def run(cmd: list[str]) -> str:
-    """Run a command, returning stdout. Raises on failure — never falls back."""
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+def run(cmd: list[str], cwd: Path) -> str:
+    """Run a command in `cwd`, returning stdout. Raises on failure — never falls back."""
+    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"{' '.join(cmd)} failed ({proc.returncode}): {proc.stderr.strip()}")
     return proc.stdout
 
 
-def week_bounds(week: str) -> tuple[str, dt.date, dt.date]:
-    """Resolve a week spec to (label, monday, sunday)."""
-    if week == "last":
-        today = dt.date.today()
-        monday = today - dt.timedelta(days=today.weekday() + 7)
-    else:
-        try:
-            year, num = week.split("-W")
-            monday = dt.date.fromisocalendar(int(year), int(num), 1)
-        except ValueError as exc:
-            raise SystemExit(f"Bad --week value {week!r}; use 'last' or '2026-W36'") from exc
+def resolve_repo(raw: str) -> Path:
+    """Validate the target repository path. Never defaults to the workflow repo."""
+    repo = Path(raw).expanduser().resolve()
+    if not repo.is_dir():
+        raise SystemExit(f"--repo {raw!r} is not a directory")
+    if repo == TOOL_ROOT:
+        raise SystemExit(
+            "--repo points at the workflow repo itself. Point it at the project "
+            "you want a changelog for."
+        )
+    try:
+        run(["git", "rev-parse", "--git-dir"], cwd=repo)
+    except RuntimeError as exc:
+        raise SystemExit(f"--repo {raw!r} is not a git repository.\n{exc}") from exc
+    return repo
 
-    iso = monday.isocalendar()
-    return f"{iso.year}-W{iso.week:02d}", monday, monday + dt.timedelta(days=6)
+
+def resolve_since(spec: str, repo: Path) -> tuple[list[str], dt.datetime]:
+    """Resolve a starting point to (git log args, cutoff timestamp).
+
+    A `YYYY-MM-DD` string is a date. Anything else must be a commit, tag, or
+    branch — its committer date becomes the cutoff for issues.
+    """
+    if ISO_DATE.match(spec):
+        cutoff = dt.datetime.fromisoformat(spec).replace(tzinfo=dt.timezone.utc)
+        return [f"--since={spec}"], cutoff
+
+    try:
+        stamp = run(["git", "log", "-1", "--format=%cI", spec], cwd=repo).strip()
+    except RuntimeError as exc:
+        raise SystemExit(
+            f"Bad --since value {spec!r}; use a YYYY-MM-DD date or a commit/tag/branch.\n{exc}"
+        ) from exc
+    return [f"{spec}..HEAD"], dt.datetime.fromisoformat(stamp)
 
 
-def collect_commits(since: dt.date, until: dt.date) -> list[dict]:
-    """Commits authored in [since, until], excluding merge commits."""
+def collect_commits(log_args: list[str], repo: Path) -> list[dict]:
+    """Commits in the range, excluding merge commits."""
     sep = "\x1f"
     fmt = sep.join(["%H", "%an", "%aI", "%s", "%b"]) + "\x1e"
-    raw = run([
-        "git", "log",
-        f"--since={since.isoformat()}",
-        f"--until={(until + dt.timedelta(days=1)).isoformat()}",
-        "--no-merges",
-        f"--pretty=format:{fmt}",
-    ])
+    raw = run(["git", "log", *log_args, "--no-merges", f"--pretty=format:{fmt}"], cwd=repo)
 
     commits = []
     for record in raw.split("\x1e"):
@@ -67,33 +92,33 @@ def collect_commits(since: dt.date, until: dt.date) -> list[dict]:
             "date": date,
             "subject": subject,
             "body": body.strip(),
-            "files": files_touched(sha),
+            "files": files_touched(sha, repo),
         })
     return commits
 
 
-def files_touched(sha: str) -> list[str]:
-    out = run(["git", "show", "--name-only", "--pretty=format:", sha])
+def files_touched(sha: str, repo: Path) -> list[str]:
+    out = run(["git", "show", "--name-only", "--pretty=format:", sha], cwd=repo)
     return [line for line in out.splitlines() if line.strip()]
 
 
-def collect_issues(since: dt.date, until: dt.date) -> list[dict]:
-    """Issues closed in the window, via `gh`. Returns [] if gh is unavailable."""
+def collect_issues(cutoff: dt.datetime, repo: Path) -> list[dict]:
+    """Issues closed since the cutoff, via `gh`. Returns [] if gh is unavailable."""
     try:
         raw = run([
             "gh", "issue", "list",
             "--state", "closed",
             "--limit", "200",
             "--json", "number,title,closedAt,labels,url",
-        ])
+        ], cwd=repo)
     except (RuntimeError, FileNotFoundError) as exc:
         print(f"warning: skipping issues ({exc})", file=sys.stderr)
         return []
 
     issues = []
     for issue in json.loads(raw or "[]"):
-        closed = dt.datetime.fromisoformat(issue["closedAt"].replace("Z", "+00:00")).date()
-        if since <= closed <= until:
+        closed = dt.datetime.fromisoformat(issue["closedAt"].replace("Z", "+00:00"))
+        if closed >= cutoff:
             issues.append({
                 "number": issue["number"],
                 "title": issue["title"],
@@ -105,18 +130,27 @@ def collect_issues(since: dt.date, until: dt.date) -> list[dict]:
 
 
 def main() -> int:
+    default_since = (dt.date.today() - dt.timedelta(days=DEFAULT_LOOKBACK_DAYS)).isoformat()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--week", default="last", help="'last' or an ISO week like 2026-W36")
+    parser.add_argument("--repo", required=True, help="path to the repository being digested")
+    parser.add_argument(
+        "--since",
+        default=default_since,
+        help=f"a YYYY-MM-DD date or a commit/tag/branch (default: {DEFAULT_LOOKBACK_DAYS} days ago)",
+    )
     args = parser.parse_args()
 
-    label, monday, sunday = week_bounds(args.week)
-    commits = collect_commits(monday, sunday)
-    issues = collect_issues(monday, sunday)
+    repo = resolve_repo(args.repo)
+    log_args, cutoff = resolve_since(args.since, repo)
+    commits = collect_commits(log_args, repo)
+    issues = collect_issues(cutoff, repo)
+    head = run(["git", "rev-parse", "--short", "HEAD"], cwd=repo).strip()
 
     json.dump(
         {
-            "week": label,
-            "range": {"from": monday.isoformat(), "to": sunday.isoformat()},
+            "repo": str(repo),
+            "since": {"spec": args.since, "cutoff": cutoff.isoformat()},
+            "head": head,
             "commits": commits,
             "issues": issues,
             "stats": {

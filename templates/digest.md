@@ -1,8 +1,8 @@
-## <ISO week> — <week of Mon DD>
+## <YYYY-MM-DD> — <short title for this batch of work>
 
-<One or two sentences on the week's theme. What would someone using this project
-notice if they came back after a week away? If the answer is "nothing", say that
-plainly and keep the entry short.>
+<One or two sentences on the theme. What would someone using this project notice
+if they came back after being away? If the answer is "nothing", say that plainly
+and keep the entry short.>
 
 ### Changed
 

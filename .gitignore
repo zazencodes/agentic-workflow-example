@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Run artifacts; the state index itself is committed
+state/activity.json
+state/digest.md
