@@ -1,18 +1,42 @@
-# agentic-workflow-example
+# Agentic Workflow Example
 
-A complete, minimal **agentic workflow**: a markdown spec a coding agent reads,
-deterministic scripts it calls, durable state, and exactly one approval gate.
+A complete, minimal **agentic workflow**.
 
-The example workflow is a **repo digest**. You point it at one of your own
-projects and it reads the commits and closed issues since a starting point you
-choose (a date, a tag, a release, or wherever the last digest stopped), writes a
-changelog entry in that project's voice, shows it to you once, and opens a pull
-request against it. There is no schedule and nothing to install.
+- a markdown spec a coding agent reads
+- deterministic scripts it calls
+- durable state
+- human-in-the-loop approval gate
 
-**This repo is the tool, not the subject.** Clone it once, then run it against
-whatever you are actually working on. The branch, the `CHANGELOG.md` entry, the
-commit and the PR all land in the target project; the only thing written here is
-the state file.
+## The guide
+
+
+This repo is the companion to **A Developer's Guide to Agentic Workflows**:
+a short PDF with everything you need to get started writing agentic workflows.
+I'll send you a copy when you [sign up to my newsletter](https://zazencodes.com/newsletter).
+
+<p align="center">
+  <a href="https://zazencodes.com/newsletter?utm_source=github&utm_medium=referral&utm_campaign=agentic-workflow-example-guide">
+    <img
+      src="docs/assets/agentic-workflows-guide-promo.png"
+      alt="Agentic Workflows — a developer's guide to creating structured automations for coding agents"
+      width="100%"
+    >
+  </a>
+  <br>
+  <a href="https://zazencodes.com/newsletter?utm_source=github&utm_medium=referral&utm_campaign=agentic-workflow-example-guide">Get the free PDF</a>
+</p>
+
+## Repo digest
+
+The example workflow is a repo digest that you can point at one of your own
+projects. It does the following:
+
+1. Reads recent commits and closed issues
+2. Writes a changelog entry
+3. Asks you for approval
+4. Opens a pull request against it
+
+Here's the file structure:
 
 ```
 ├── AGENTS.md                # when to run it — the natural-language trigger
@@ -28,9 +52,7 @@ the state file.
 
 ## Run it
 
-Requires `git`, `python3`, and an authenticated [`gh`](https://cli.github.com/).
-No package installs — the scripts are stdlib only.
-
+Here's how to run it:
 ```sh
 git clone https://github.com/zazencodes/agentic-workflow-example
 cd agentic-workflow-example
@@ -39,55 +61,15 @@ cd agentic-workflow-example
 claude "run the repo changelog workflow for ~/code/my-project"
 ```
 
-Works the same with `codex`, `agy`, or any other CLI coding agent — the spec is
-the interface, not the tool.
+It requires `git`, `python3`, and an authenticated [`gh`](https://cli.github.com/).
 
-Leave the path out and it asks:
+You can try it out with `codex`, `agy`, or any other CLI coding agent instead of Claude.
 
-```sh
-claude "run the repo changelog workflow"
-# > Which repository should I digest? Give me the path on your machine.
-```
+## `AGENTS.md` vs `WORKFLOW.md`
 
-You can also just ask for the thing you want, in your own words:
+- [`AGENTS.md`](AGENTS.md) is loaded into context for every agent session. It defines the **trigger** — *when* to run the workflow, and which plain-English requests should invoke it.
+- [`WORKFLOW.md`](WORKFLOW.md) is the **program** itself. It's loaded as needed (through progressive disclosure).
 
-```sh
-claude "write up what's changed in ~/code/my-project since the last release"
-```
-
-That works because of [`AGENTS.md`](AGENTS.md), which every CLI agent reads
-automatically when it starts in this directory. It lists the phrases that mean
-"run the repo digest" and tells the agent to open `WORKFLOW.md` and follow it
-rather than improvising an answer in chat.
-
-**The two files do different jobs, and it is worth understanding the split:**
-
-- [`AGENTS.md`](AGENTS.md) is the **trigger** — *when* to run the workflow, and
-  which plain-English requests should invoke it. Short, and always in context.
-- [`WORKFLOW.md`](WORKFLOW.md) is the **program** — *how* to run it. Long, and
-  read on demand, only once a run actually starts.
-
-Keeping them apart is what lets you add a tenth workflow to a repo without
-putting ten procedures in front of the agent on every unrelated question.
-
-## The guide
-
-This repo is the companion to **[A Developer's Guide to Agentic Workflows](https://zazencodes.com/newsletter)** —
-a short PDF on why you should stop prompting and start specifying, what the four
-parts of a workflow are, and the five rules that keep one working six months
-later. It's free with the newsletter.
-
-<p align="center">
-  <a href="https://zazencodes.com/?utm_source=github&utm_medium=referral&utm_campaign=agentic-workflow-example">
-    <img
-      src="docs/assets/zazencodes-banner.png"
-      alt="ZazenCodes — Engineering for the Agentic Era"
-      width="100%"
-    >
-  </a>
-  <br>
-  Created by <a href="https://zazencodes.com/">ZazenCodes</a>
-</p>
 
 ## What makes this a workflow and not a prompt
 
@@ -123,37 +105,25 @@ size:
   context limit or a timeout halfway through. Learn the shape on something small
   enough to read.
 
-The division of labour is the whole trick:
-
-| Give to the agent | Give to a script |
-|---|---|
-| Grouping commits into themes | Running `git log` over a range |
-| Writing the changelog prose | Creating the branch and opening the PR |
-| Deciding a run has gone wrong | Recording that the run succeeded |
-
-## Adapt it
-
-The workflow is deliberately small so you can gut it. To point it at your own
-repetitive task:
-
-1. Replace `collect_activity.py` with whatever gathers your inputs. Keep the
-   `--repo` argument, or whatever names the thing being operated on — an
-   automation that assumes the current directory will eventually write to the
-   wrong one.
-2. Rewrite the Step 2 prose rules for what you actually want written.
-   Update the trigger phrases in `AGENTS.md` to match how you'd actually ask.
-3. Replace `open_pr.py` with your publish step.
-4. Keep the constants block, the single gate, and the state file. Those are the
-   parts that make it survive.
-
-Full walkthrough in [`WORKFLOW.md`](WORKFLOW.md).
-
 ## More from ZazenCodes
 
-- **Agentic Coding Fundamentals** — the full course: <https://zazencodes.com>
-- **Newsletter** — one email a week, plus the guide: <https://zazencodes.com/newsletter>
+- **Agentic Coding Fundamentals** — the full course:
+<https://zazencodes.com/courses/agentic-coding-fundamentals>
+- **Newsletter** — one email a week: <https://zazencodes.com/newsletter>
 - **YouTube** — <https://youtube.com/@ZazenCodes>
+
+<p align="center">
+  <a href="https://zazencodes.com/?utm_source=github&utm_medium=referral&utm_campaign=agentic-workflow-example">
+    <img
+      src="docs/assets/zazencodes-banner.png"
+      alt="ZazenCodes — Engineering for the Agentic Era"
+      width="100%"
+    >
+  </a>
+  <br>
+  Created by <a href="https://zazencodes.com/">ZazenCodes</a>
+</p>
 
 ## License
 
-[MIT](LICENSE). Fork it, gut it, make it yours.
+[MIT](LICENSE)
